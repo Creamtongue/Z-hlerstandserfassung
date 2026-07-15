@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Stadtwerke Nordstadt – Zählerablesung</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@latest/dist/jspdf.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+--primary:#1B3A5C;--primary-light:#2A5A8C;--accent:#4CAF50;--accent-dark:#388E3C;
+--bg:#F4F6F8;--card:#FFFFFF;--text:#1A1A1A;--text-muted:#5F6B7A;
+--border:#D0D7DE;--danger:#D32F2F;--danger-light:#FFEBEE;
+--radius:10px;--shadow:0 2px 8px rgba(0,0,0,.08);
+}
+html{font-size:16px;-webkit-text-size-adjust:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+background:var(--bg);color:var(--text);line-height:1.5;padding-bottom:100px}
+
+/* Header */
+.app-header{background:var(--primary);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.logo{width:40px;height:40px;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--primary);font-size:18px;flex-shrink:0}
+.app-header h1{font-size:1.1rem;font-weight:700;letter-spacing:-.02em}
+.app-header small{font-size:.72rem;opacity:.8;display:block;margin-top:1px}
+
+/* Sections */
+.section{background:var(--card);margin:12px;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.section-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;user-select:none;background:var(--primary);color:#fff;gap:8px}
+.section-header h2{font-size:.95rem;font-weight:600;flex:1}
+.section-header .badge{background:var(--accent);color:#fff;font-size:.7rem;padding:2px 8px;border-radius:10px;font-weight:600}
+.section-header .chevron{transition:transform .25s;font-size:.8rem}
+.section-header.collapsed .chevron{transform:rotate(-90deg)}
+.section-body{padding:16px;display:block}
+.section-body.hidden{display:none}
+
+/* Form */
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:.82rem;font-weight:600;color:var(--text-muted);margin-bottom:4px}
+.form-group label .req{color:var(--danger);margin-left:2px}
+input[type="text"],input[type="email"],input[type="tel"],input[type="number"],input[type="date"],select,textarea{
+width:100%;padding:11px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.95rem;
+font-family:inherit;background:#fff;color:var(--text);transition:border-color .2s;-webkit-appearance:none}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary-light);box-shadow:0 0 0 3px rgba(27,58,92,.12)}
+textarea{resize:vertical;min-height:60px}
+.input-error{border-color:var(--danger)!important;background:var(--danger-light)!important}
+.error-msg{color:var(--danger);font-size:.75rem;margin-top:3px;display:none}
+.input-error+.error-msg,.input-error~.error-msg{display:block}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:400px){.form-row{grid-template-columns:1fr}}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:12px 18px;
+border:none;border-radius:8px;font-size:.9rem;font-weight:600;cursor:pointer;
+transition:background .2s,transform .1s;font-family:inherit;text-decoration:none;width:100%}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-light)}
+.btn-accent{background:var(--accent);color:#fff}
+.btn-accent:hover{background:var(--accent-dark)}
+.btn-outline{background:transparent;color:var(--primary);border:1.5px solid var(--primary)}
+.btn-outline:hover{background:rgba(27,58,92,.06)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-sm{padding:8px 14px;font-size:.82rem}
+.btn-group{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+
+/* Zähler card */
+.zaehler-card{border:1.5px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px;position:relative;background:#FAFBFC}
+.zaehler-card .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.zaehler-card .card-head h3{font-size:.9rem;color:var(--primary);font-weight:700}
+.zaehler-card .remove-btn{background:none;border:none;color:var(--danger);cursor:pointer;font-size:1.1rem;padding:4px 8px}
+.zaehler-thumb{max-width:100%;max-height:140px;border-radius:6px;margin-top:8px;border:1px solid var(--border)}
+
+/* Nachkommastellen hint */
+.decimal-hint{display:inline-block;background:var(--danger-light);color:var(--danger);font-size:.75rem;
+padding:2px 8px;border-radius:4px;margin-top:3px;font-weight:600}
+
+/* Modal / Camera */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.modal-overlay.hidden{display:none}
+.camera-container{width:100%;max-width:500px;position:relative}
+.camera-container video{width:100%;border-radius:8px}
+.camera-controls{display:flex;gap:10px;margin-top:12px;justify-content:center}
+.camera-controls .btn{width:auto;min-width:120px}
+canvas.hidden-canvas{display:none}
+
+/* Loading overlay */
+.loading-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;display:flex;
+flex-direction:column;align-items:center;justify-content:center;color:#fff;gap:16px}
+.loading-overlay.hidden{display:none}
+.spinner{width:44px;height:44px;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-overlay p{font-size:.95rem;text-align:center;max-width:280px}
+.progress-bar{width:220px;height:6px;background:rgba(255,255,255,.2);border-radius:3px;overflow:hidden}
+.progress-bar-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .3s;width:0%}
+
+/* Summary */
+.summary-table{width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:14px}
+.summary-table th,.summary-table td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--border)}
+.summary-table th{background:#F0F3F6;font-weight:600;color:var(--text-muted);width:38%}
+.summary-zaehler{margin-bottom:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.summary-zaehler h4{background:var(--primary);color:#fff;padding:8px 12px;font-size:.85rem}
+
+/* Signature */
+.sig-area{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.sig-area label{font-size:.82rem;font-weight:600;color:var(--text-muted)}
+.sig-canvas{border:1.5px dashed var(--border);border-radius:8px;width:100%;height:120px;touch-action:none;cursor:crosshair;background:#fff}
+.sig-actions{display:flex;gap:8px}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;
+padding:10px 20px;border-radius:8px;font-size:.85rem;font-weight:600;z-index:400;opacity:0;
+transition:opacity .3s;pointer-events:none;text-align:center;max-width:90%}
+.toast.show{opacity:1}
+
+/* Print */
+@media print{
+body{background:#fff;padding:0;font-size:10pt}
+.app-header,.section-header .chevron,.btn,.btn-group,.no-print,.toast,.modal-overlay,.loading-overlay{display:none!important}
+.section{box-shadow:none;margin:0;border-radius:0;page-break-inside:avoid}
+.section-body{display:block!important}
+.section-header{background:var(--primary);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.summary-zaehler h4{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.print-header{display:flex!important;align-items:center;gap:12px;padding:16px 0;border-bottom:2px solid var(--primary);margin-bottom:16px}
+.print-footer{display:block!important;text-align:center;font-size:8pt;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;margin-top:24px}
+.sig-canvas{border:1px solid #999}
+}
+.print-header,.print-footer{display:none}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="app-header">
+<div class="logo">SN</div>
+<div><h1>Stadtwerke Nordstadt</h1><small>Zählerablesung &amp; Protokoll</small></div>
+</header>
+
+<!-- Print Header (only visible in print) -->
+<div class="print-header">
+<div class="logo" style="width:50px;height:50px;font-size:22px">SN</div>
+<div>
+<h1 style="font-size:1.3rem;color:var(--primary)">Stadtwerke Nordstadt</h1>
+<div style="font-size:.85rem;color:var(--text-muted)">Zählerstandsmeldung / Ableseprotokoll</div>
+<div style="font-size:.8rem;color:var(--text-muted)" id="printDate"></div>
+<div style="font-size:.8rem;color:var(--text-muted)" id="printProtoNr"></div>
+</div>
+</div>
+
+<!-- SECTION A: Kundendaten -->
+<div class="section" id="sectionKunde">
+<div class="section-header" onclick="toggleSection('sectionKunde')">
+<h2>👤 Kundendaten</h2>
+<span class="badge">A</span>
+<span class="chevron">▼</span>
+</div>
+<div class="section-body" id="bodyKunde">
+<div class="form-group">
+<label>Kundennummer <span class="req">*</span></label>
+<input type="text" id="kundennummer" placeholder="z. B. KN-0012345" autocomplete="off">
+</div>
+<div class="form-group">
+<label>Anrede</label>
+<select id="anrede"><option value="">– wählen –</option><option>Herr</option><option>Frau</option><option>Firma</option><option>Divers</option></select>
+</div>
+<div class="form-row">
+<div class="form-group"><label>Vorname</label><input type="text" id="vorname" placeholder="Vorname"></div>
+<div class="form-group"><label>Nachname / Firma <span class="req">*</span></label><input type="text" id="nachname" placeholder="Nachname / Firmenname"></div>
+</div>
+<div class="form-group"><label>Straße + Hausnr. <span class="req">*</span></label><input type="text" id="strasse" placeholder="Musterstraße 1"></div>
+<div class="form-row">
+<div class="form-group"><label>PLZ <span class="req">*</span></label><input type="text" id="plz" placeholder="12345" maxlength="5" inputmode="numeric"></div>
+<div class="form-group"><label>Ort <span class="req">*</span></label><input type="text" id="ort" placeholder="Nordstadt"></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>Telefon</label><input type="tel" id="telefon" placeholder="01234 56789"></div>
+<div class="form-group"><label>E-Mail</label><input type="email" id="email" placeholder="kunde@beispiel.de"></div>
+</div>
+<div class="btn-group no-print">
+<button class="btn btn-outline" onclick="startCamera('kunde')">📷 Adresse / Kundenschreiben fotografieren</button>
+</div>
+</div>
+</div>
+
+<!-- SECTION B: Zähler -->
+<div class="section" id="sectionZaehler">
+<div class="section-header" onclick="toggleSection('sectionZaehler')">
+<h2>⚡ Zählererfassung</h2>
+<span class="badge" id="zaehlerCount">0</span>
+<span class="chevron">▼</span>
+</div>
+<div class="section-body" id="bodyZaehler">
+<div id="zaehlerContainer"></div>
+<div class="btn-group no-print">
+<button class="btn btn-accent" onclick="addZaehler()">+ Weiteren Zähler hinzufügen</button>
+</div>
+</div>
+</div>
+
+<!-- SECTION C: Zusammenfassung & Export -->
+<div class="section" id="sectionProtokoll">
+<div class="section-header" onclick="toggleSection('sectionProtokoll')">
+<h2>📋 Protokoll erstellen</h2>
+<span class="badge">C</span>
+<span class="chevron">▼</span>
+</div>
+<div class="section-body" id="bodyProtokoll">
+<div id="summaryArea"></div>
+
+<!-- Unterschriften -->
+<div style="margin-top:16px">
+<h3 style="font-size:.9rem;color:var(--primary);margin-bottom:10px">✍️ Unterschriften</h3>
+<div class="form-row">
+<div class="sig-area">
+<label>Unterschrift Ableser</label>
+<canvas class="sig-canvas" id="sigAbleser"></canvas>
+<div class="sig-actions no-print"><button class="btn btn-outline btn-sm" onclick="clearSig('sigAbleser')">Löschen</button></div>
+</div>
+<div class="sig-area">
+<label>Unterschrift Kunde</label>
+<canvas class="sig-canvas" id="sigKunde"></canvas>
+<div class="sig-actions no-print"><button class="btn btn-outline btn-sm" onclick="clearSig('sigKunde')">Löschen</button></div>
+</div>
+</div>
+</div>
+
+<div class="btn-group no-print" style="margin-top:20px">
+<button class="btn btn-primary" onclick="generateSummary()">🔄 Vorschau aktualisieren</button>
+<button class="btn btn-accent" onclick="generatePDF()">📄 Ableseprotokoll als PDF erzeugen</button>
+<button class="btn btn-outline" onclick="sendEmail()">📧 Per E-Mail senden</button>
+<button class="btn btn-outline" onclick="exportJSON()">💾 Daten als JSON exportieren</button>
+<button class="btn btn-outline" onclick="saveToStorage()">💾 Lokal zwischenspeichern</button>
+<button class="btn btn-outline" onclick="loadFromStorage()">📂 Gespeicherte Daten laden</button>
+</div>
+</div>
+</div>
+
+<!-- Print Footer -->
+<div class="print-footer">
+Stadtwerke Nordstadt · Musterstraße 1 · 12345 Nordstadt · Tel. 01234 56789-0 · info@sw-nordstadt.de
+</div>
+
+<!-- Camera Modal -->
+<div class="modal-overlay hidden" id="cameraModal">
+<div class="camera-container">
+<video id="cameraVideo" autoplay playsinline></video>
+<div class="camera-controls">
+<button class="btn btn-accent" id="captureBtn" onclick="capturePhoto()">📸 Auslösen</button>
+<button class="btn btn-danger" onclick="closeCamera()">✕ Abbrechen</button>
+</div>
+</div>
+</div>
+<canvas class="hidden-canvas" id="captureCanvas"></canvas>
+
+<!-- Loading Overlay -->
+<div class="loading-overlay hidden" id="loadingOverlay">
+<div class="spinner"></div>
+<p id="loadingText">OCR-Erkennung läuft…<br>Bitte warten.</p>
+<div class="progress-bar"><div class="progress-bar-fill" id="ocrProgress"></div></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   STATE
+   ============================================================ */
+let zaehlerIndex = 0;
+let cameraStream = null;
+let cameraTarget = null; // 'kunde' or zaehler-id
+let cameraTargetZaehlerId = null;
+const protokollNr = 'ABL-' + new Date().getFullYear() + '-' + String(Math.floor(10000 + Math.random()*90000));
+
+/* ============================================================
+   SECTION TOGGLE
+   ============================================================ */
+function toggleSection(id){
+  const sec = document.getElementById(id);
+  const header = sec.querySelector('.section-header');
+  const body = sec.querySelector('.section-body');
+  header.classList.toggle('collapsed');
+  body.classList.toggle('hidden');
+}
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+function showToast(msg, ms=2500){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), ms);
+}
+
+/* ============================================================
+   ZÄHLER MANAGEMENT
+   ============================================================ */
+function addZaehler(){
+  zaehlerIndex++;
+  const id = 'z' + zaehlerIndex;
+  const today = new Date().toISOString().slice(0,10);
+  const html = `
+  <div class="zaehler-card" id="card_${id}" data-id="${id}">
+    <div class="card-head">
+      <h3>Zähler #${zaehlerIndex}</h3>
+      <button class="remove-btn" onclick="removeZaehler('${id}')" title="Entfernen">🗑️</button>
+    </div>
+    <div class="form-group">
+      <label>Sparte <span class="req">*</span></label>
+      <select id="sparte_${id}"><option value="">– wählen –</option><option>Strom</option><option>Gas</option><option>Wasser</option></select>
+    </div>
+    <div class="form-group">
+      <label>Zählernummer <span class="req">*</span></label>
+      <input type="text" id="znr_${id}" placeholder="z. B. 1ESY1234567890">
+    </div>
+    <div class="form-group">
+      <label>Zählerstand <span class="req">*</span></label>
+      <input type="text" id="zstand_${id}" placeholder="z. B. 12345.6" inputmode="decimal">
+      <div class="decimal-hint">Nachkommastellen rot markiert (wie auf echten Zählern)</div>
+    </div>
+    <div class="form-group">
+      <label>Zählertyp</label>
+      <select id="ztyp_${id}">
+        <option value="">– wählen –</option>
+        <option>Drehstromzähler</option><option>Wechselstromzähler</option>
+        <option>Gaszähler</option><option>Wasserzähler</option>
+        <option>Zweirichtungszähler (Einspeisung/Bezug)</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Ablesedatum <span class="req">*</span></label>
+        <input type="date" id="datum_${id}" value="${today}">
+      </div>
+      <div class="form-group">
+        <label>Ablesegrund</label>
+        <select id="grund_${id}">
+          <option>Turnusablesung</option><option>Ein-/Auszug</option>
+          <option>Lieferantenwechsel</option><option>Zwischenablesung</option><option>Gerätetausch</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Zählpunktbezeichnung</label>
+      <input type="text" id="zpkt_${id}" placeholder="DE00… / DVGW-Nr.">
+    </div>
+    <div class="form-group">
+      <label>Notizen / Hinweise</label>
+      <textarea id="notiz_${id}" placeholder="z. B. Zähler schwer zugänglich, Hund im Garten"></textarea>
+    </div>
+    <div id="thumb_${id}" style="margin-bottom:8px"></div>
+    <input type="hidden" id="foto_${id}" value="">
+    <div class="btn-group no-print">
+      <button class="btn btn-outline btn-sm" onclick="startCamera('${id}')">📷 Zähler fotografieren &amp; auslesen</button>
+    </div>
+  </div>`;
+  document.getElementById('zaehlerContainer').insertAdjacentHTML('beforeend', html);
+  updateZaehlerCount();
+}
+
+function removeZaehler(id){
+  const card = document.getElementById('card_'+id);
+  if(card) card.remove();
+  updateZaehlerCount();
+}
+
+function updateZaehlerCount(){
+  const n = document.querySelectorAll('.zaehler-card').length;
+  document.getElementById('zaehlerCount').textContent = n;
+}
+
+function getAllZaehlerIds(){
+  return Array.from(document.querySelectorAll('.zaehler-card')).map(c=>c.dataset.id);
+}
+
+/* ============================================================
+   CAMERA
+   ============================================================ */
+async function startCamera(target){
+  cameraTarget = target;
+  document.getElementById('cameraModal').classList.remove('hidden');
+  try{
+    cameraStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment', width:{ideal:1920}, height:{ideal:1080}}});
+    document.getElementById('cameraVideo').srcObject = cameraStream;
+  }catch(e){
+    showToast('Kamerazugriff nicht möglich: '+e.message, 4000);
+    closeCamera();
+  }
+}
+
+function closeCamera(){
+  document.getElementById('cameraModal').classList.add('hidden');
+  if(cameraStream){
+    cameraStream.getTracks().forEach(t=>t.stop());
+    cameraStream = null;
+  }
+  document.getElementById('cameraVideo').srcObject = null;
+}
+
+function capturePhoto(){
+  const video = document.getElementById('cameraVideo');
+  const canvas = document.getElementById('captureCanvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  closeCamera();
+  if(cameraTarget === 'kunde'){
+    runOCRKunde(dataUrl);
+  } else {
+    const zid = cameraTarget;
+    const fotoInput = document.getElementById('foto_'+zid);
+    if(fotoInput) fotoInput.value = dataUrl;
+    const thumbDiv = document.getElementById('thumb_'+zid);
+    if(thumbDiv) thumbDiv.innerHTML = `<img src="${dataUrl}" class="zaehler-thumb" alt="Zählerfoto">`;
+    runOCRZaehler(dataUrl, zid);
+  }
+}
+
+/* ============================================================
+   OCR
+   ============================================================ */
+function showLoading(text){
+  document.getElementById('loadingText').innerHTML = text;
+  document.getElementById('ocrProgress').style.width = '0%';
+  document.getElementById('loadingOverlay').classList.remove('hidden');
+}
+function hideLoading(){
+  document.getElementById('loadingOverlay').classList.add('hidden');
+}
+function setProgress(pct){
+  document.getElementById('ocrProgress').style.width = pct+'%';
+}
+
+async function runOCRKunde(dataUrl){
+  showLoading('OCR-Erkennung läuft…<br>Kundendaten werden gelesen.');
+  try{
+    const worker = await Tesseract.createWorker('deu',1,{
+      logger: m=>{if(m.progress) setProgress(Math.round(m.progress*100));}
+    });
+    const {data:{text}} = await worker.recognize(dataUrl);
+    await worker.terminate();
+    parseKundeText(text);
+    showToast('OCR abgeschlossen – bitte Felder prüfen!');
+  }catch(e){
+    showToast('OCR-Fehler: '+e.message, 4000);
+  }
+  hideLoading();
+}
+
+function parseKundeText(text){
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+  // Kundennummer: KN-XXXXXXX or similar
+  const knMatch = text.match(/KN[-\s]?\d{5,}/i);
+  if(knMatch) document.getElementById('kundennummer').value = knMatch[0].replace(/\s/g,'');
+  // PLZ + Ort
+  const plzMatch = text.match(/(\d{5})\s+([A-ZÄÖÜa-zäöüß][A-ZÄÖÜa-zäöüß\s\-]+)/);
+  if(plzMatch){
+    document.getElementById('plz').value = plzMatch[1];
+    document.getElementById('ort').value = plzMatch[2].trim();
+  }
+  // Straße: line containing number pattern like "Str. 12" or "weg 3a"
+  for(const line of lines){
+    if(/\d+\s*[a-zA-Z]?\s*$/.test(line) && /[a-zA-ZäöüÄÖÜß]{3,}/.test(line) && !/\d{5}/.test(line)){
+      document.getElementById('strasse').value = line;
+      break;
+    }
+  }
+  // Name: try "Herr/Frau Vorname Nachname"
+  const nameMatch = text.match(/(Herr|Frau|Firma)\s+([A-ZÄÖÜa-zäöüß]+)\s+([A-ZÄÖÜa-zäöüß]+)/);
+  if(nameMatch){
+    const anredeSelect = document.getElementById('anrede');
+    for(let o of anredeSelect.options){if(o.text===nameMatch[1])o.selected=true;}
+    document.getElementById('vorname').value = nameMatch[2];
+    document.getElementById('nachname').value = nameMatch[3];
+  }
+}
+
+async function runOCRZaehler(dataUrl, zid){
+  showLoading('OCR-Erkennung läuft…<br>Zähler wird ausgelesen.');
+  try{
+    const worker = await Tesseract.createWorker('deu',1,{
+      logger: m=>{if(m.progress) setProgress(Math.round(m.progress*100));}
+    });
+    const {data:{text}} = await worker.recognize(dataUrl);
+    await worker.terminate();
+    parseZaehlerText(text, zid);
+    showToast('OCR abgeschlossen – bitte Felder prüfen!');
+  }catch(e){
+    showToast('OCR-Fehler: '+e.message, 4000);
+  }
+  hideLoading();
+}
+
+function parseZaehlerText(text, zid){
+  const cleaned = text.replace(/[^a-zA-Z0-9.,\s\-\/]/g,' ');
+  // Zählernummer: alphanumeric string >= 8 chars (e.g. 1ESY1234567890)
+  const znrMatch = cleaned.match(/\b([A-Z0-9]{2,}[\s\-]?[A-Z0-9]{4,})\b/i);
+  // Search for a long alphanumeric sequence
+  const allAlnum = cleaned.match(/[A-Z0-9]{8,}/gi);
+  if(allAlnum && allAlnum.length > 0){
+    document.getElementById('znr_'+zid).value = allAlnum[0];
+  } else if(znrMatch){
+    document.getElementById('znr_'+zid).value = znrMatch[1].replace(/\s/g,'');
+  }
+  // Zählerstand: number with possible decimal, prefer large numbers
+  const numbers = cleaned.match(/\d{3,}[.,]?\d*/g);
+  if(numbers){
+    // pick the largest looking number
+    let best = numbers[0];
+    let bestVal = parseFloat(best.replace(',','.'));
+    for(const n of numbers){
+      const v = parseFloat(n.replace(',','.'));
+      if(v > bestVal){bestVal = v; best = n;}
+    }
+    document.getElementById('zstand_'+zid).value = best.replace(',','.');
+  }
+}
+
+/* ============================================================
+   VALIDATION
+   ============================================================ */
+function validate(){
+  let ok = true;
+  const checks = [
+    {id:'kundennummer', test: v=>v.length>=3},
+    {id:'nachname', test: v=>v.length>=2},
+    {id:'strasse', test: v=>v.length>=3},
+    {id:'plz', test: v=>/^\d{5}$/.test(v)},
+    {id:'ort', test: v=>v.length>=2},
+  ];
+  for(const c of checks){
+    const el = document.getElementById(c.id);
+    if(!c.test(el.value.trim())){
+      el.classList.add('input-error');
+      ok = false;
+    } else {
+      el.classList.remove('input-error');
+    }
+  }
+  // Zähler
+  for(const zid of getAllZaehlerIds()){
+    const sparteEl = document.getElementById('sparte_'+zid);
+    const znrEl = document.getElementById('znr_'+zid);
+    const zstandEl = document.getElementById('zstand_'+zid);
+    const datumEl = document.getElementById('datum_'+zid);
+    if(!sparteEl.value){sparteEl.classList.add('input-error');ok=false;}else{sparteEl.classList.remove('input-error');}
+    if(znrEl.value.trim().length<3){znrEl.classList.add('input-error');ok=false;}else{znrEl.classList.remove('input-error');}
+    const standVal = parseFloat(zstandEl.value);
+    if(isNaN(standVal)||standVal<0){zstandEl.classList.add('input-error');ok=false;}else{zstandEl.classList.remove('input-error');}
+    if(!datumEl.value){datumEl.classList.add('input-error');ok=false;}else{datumEl.classList.remove('input-error');}
+  }
+  return ok;
+}
+
+/* ============================================================
+   COLLECT DATA
+   ============================================================ */
+function collectData(){
+  const zaehler = getAllZaehlerIds().map(zid=>({
+    sparte: document.getElementById('sparte_'+zid).value,
+    zaehlernummer: document.getElementById('znr_'+zid).value.trim(),
+    zaehlerstand: document.getElementById('zstand_'+zid).value.trim(),
+    zaehlertyp: document.getElementById('ztyp_'+zid).value,
+    ablesedatum: document.getElementById('datum_'+zid).value,
+    ablesegrund: document.getElementById('grund_'+zid).value,
+    zaehlpunkt: document.getElementById('zpkt_'+zid).value.trim(),
+    notizen: document.getElementById('notiz_'+zid).value.trim(),
+    foto: document.getElementById('foto_'+zid).value
+  }));
+  return {
+    protokollNr,
+    datum: new Date().toLocaleDateString('de-DE'),
+    kunde: {
+      kundennummer: document.getElementById('kundennummer').value.trim(),
+      anrede: document.getElementById('anrede').value,
+      vorname: document.getElementById('vorname').value.trim(),
+      nachname: document.getElementById('nachname').value.trim(),
+      strasse: document.getElementById('strasse').value.trim(),
+      plz: document.getElementById('plz').value.trim(),
+      ort: document.getElementById('ort').value.trim(),
+      telefon: document.getElementById('telefon').value.trim(),
+      email: document.getElementById('email').value.trim()
+    },
+    zaehler
+  };
+}
+
+/* ============================================================
+   SUMMARY
+   ============================================================ */
+function generateSummary(){
+  if(!validate()){
+    showToast('Bitte alle Pflichtfelder korrekt ausfüllen!', 3000);
+    return;
+  }
+  const data = collectData();
+  let html = `<h3 style="font-size:.95rem;color:var(--primary);margin-bottom:10px">Protokoll ${data.protokollNr} – ${data.datum}</h3>`;
+  html += `<table class="summary-table">
+    <tr><th>Kundennummer</th><td>${esc(data.kunde.kundennummer)}</td></tr>
+    <tr><th>Name</th><td>${esc(data.kunde.anrede)} ${esc(data.kunde.vorname)} ${esc(data.kunde.nachname)}</td></tr>
+    <tr><th>Adresse</th><td>${esc(data.kunde.strasse)}, ${esc(data.kunde.plz)} ${esc(data.kunde.ort)}</td></tr>
+    ${data.kunde.telefon?`<tr><th>Telefon</th><td>${esc(data.kunde.telefon)}</td></tr>`:''}
+    ${data.kunde.email?`<tr><th>E-Mail</th><td>${esc(data.kunde.email)}</td></tr>`:''}
+  </table>`;
+  data.zaehler.forEach((z,i)=>{
+    const einheit = z.sparte==='Strom'?'kWh':'m³';
+    html += `<div class="summary-zaehler">
+      <h4>${sparteIcon(z.sparte)} Zähler ${i+1}: ${esc(z.sparte)} – ${esc(z.zaehlernummer)}</h4>
+      <table class="summary-table">
+        <tr><th>Zählerstand</th><td><strong>${esc(z.zaehlerstand)} ${einheit}</strong></td></tr>
+        <tr><th>Zählertyp</th><td>${esc(z.zaehlertyp)}</td></tr>
+        <tr><th>Ablesedatum</th><td>${esc(z.ablesedatum)}</td></tr>
+        <tr><th>Ablesegrund</th><td>${esc(z.ablesegrund)}</td></tr>
+        ${z.zaehlpunkt?`<tr><th>Zählpunkt</th><td>${esc(z.zaehlpunkt)}</td></tr>`:''}
+        ${z.notizen?`<tr><th>Notizen</th><td>${esc(z.notizen)}</td></tr>`:''}
+      </table>
+      ${z.foto?`<img src="${z.foto}" style="max-width:100%;max-height:160px;border-radius:6px;margin:8px 12px 12px" alt="Zählerfoto">`:''}
+    </div>`;
+  });
+  document.getElementById('summaryArea').innerHTML = html;
+  showToast('Vorschau aktualisiert');
+}
+
+function sparteIcon(s){return s==='Strom'?'⚡':s==='Gas'?'🔥':s==='Wasser'?'💧':'📊';}
+function esc(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+/* ============================================================
+   PDF GENERATION (jsPDF)
+   ============================================================ */
+async function generatePDF(){
+  if(!validate()){showToast('Bitte alle Pflichtfelder korrekt ausfüllen!',3000);return;}
+  const data = collectData();
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({unit:'mm',format:'a4'});
+  const pw = 210, ph = 297, ml = 18, mr = 18, mt = 18;
+  const cw = pw - ml - mr;
+  let y = mt;
+
+  // Helper functions
+  function checkPage(needed){
+    if(y + needed > ph - 25){
+      // footer on current page
+      drawFooter(doc);
+      doc.addPage();
+      y = mt;
+    }
+  }
+  function drawFooter(d){
+    d.setFontSize(7);
+    d.setTextColor(120);
+    d.text('Stadtwerke Nordstadt · Musterstraße 1 · 12345 Nordstadt · Tel. 01234 56789-0 · info@sw-nordstadt.de', pw/2, ph-10, {align:'center'});
+    d.setDrawColor(200);
+    d.line(ml, ph-14, pw-mr, ph-14);
+  }
+
+  // Header
+  doc.setFillColor(27,58,92);
+  doc.rect(0,0,pw,32,'F');
+  doc.setFontSize(18);doc.setTextColor(255);doc.setFont(undefined,'bold');
+  doc.text('SN', ml+6, 14);
+  doc.setFontSize(14);
+  doc.text('Stadtwerke Nordstadt', ml+18, 14);
+  doc.setFontSize(9);doc.setFont(undefined,'normal');
+  doc.text('Zählerstandsmeldung / Ableseprotokoll', ml+18, 21);
+  doc.text(`Protokoll-Nr.: ${data.protokollNr}    Datum: ${data.datum}`, ml+18, 27);
+  y = 40;
+
+  // Kundendaten
+  doc.setTextColor(27,58,92);doc.setFontSize(11);doc.setFont(undefined,'bold');
+  doc.text('Kundendaten', ml, y);y+=2;
+  doc.setDrawColor(27,58,92);doc.setLineWidth(0.5);doc.line(ml,y,pw-mr,y);y+=5;
+
+  doc.setFontSize(9);doc.setTextColor(60);doc.setFont(undefined,'normal');
+  const kundeFields = [
+    ['Kundennummer', data.kunde.kundennummer],
+    ['Name', `${data.kunde.anrede} ${data.kunde.vorname} ${data.kunde.nachname}`.trim()],
+    ['Adresse', `${data.kunde.strasse}, ${data.kunde.plz} ${data.kunde.ort}`],
+    ['Telefon', data.kunde.telefon],
+    ['E-Mail', data.kunde.email]
+  ].filter(r=>r[1]);
+
+  for(const [lbl,val] of kundeFields){
+    doc.setFont(undefined,'bold');doc.text(lbl+':', ml, y);
+    doc.setFont(undefined,'normal');doc.text(val, ml+40, y);
+    y+=5;
+  }
+  y+=4;
+
+  // Zähler
+  for(let i=0;i<data.zaehler.length;i++){
+    const z = data.zaehler[i];
+    const einheit = z.sparte==='Strom'?'kWh':'m³';
+    checkPage(50);
+
+    doc.setTextColor(27,58,92);doc.setFontSize(11);doc.setFont(undefined,'bold');
+    doc.text(`Zähler ${i+1}: ${z.sparte} – ${z.zaehlernummer}`, ml, y);y+=2;
+    doc.setDrawColor(76,175,80);doc.setLineWidth(0.5);doc.line(ml,y,pw-mr,y);y+=5;
+
+    doc.setFontSize(9);doc.setTextColor(60);
+    const zFields = [
+      ['Zählerstand', `${z.zaehlerstand} ${einheit}`],
+      ['Zählertyp', z.zaehlertyp],
+      ['Ablesedatum', z.ablesedatum],
+      ['Ablesegrund', z.ablesegrund],
+      ['Zählpunkt', z.zaehlpunkt],
+      ['Notizen', z.notizen]
+    ].filter(r=>r[1]);
+
+    for(const [lbl,val] of zFields){
+      checkPage(6);
+      doc.setFont(undefined,'bold');doc.text(lbl+':', ml, y);
+      doc.setFont(undefined,'normal');
+      const lines = doc.splitTextToSize(val, cw-42);
+      doc.text(lines, ml+40, y);
+      y += lines.length * 4.5;
+      y += 1;
+    }
+
+    // Photo
+    if(z.foto){
+      checkPage(45);
+      try{
+        doc.addImage(z.foto, 'JPEG', ml, y, 50, 37);
+        y += 40;
+      }catch(e){}
+    }
+    y += 6;
+  }
+
+  // Unterschriften
+  checkPage(40);
+  doc.setTextColor(27,58,92);doc.setFontSize(11);doc.setFont(undefined,'bold');
+  doc.text('Unterschriften', ml, y);y+=6;
+
+  const sigAbleserCanvas = document.getElementById('sigAbleser');
+  const sigKundeCanvas = document.getElementById('sigKunde');
+
+  // Draw signature lines
+  doc.setDrawColor(150);doc.setLineWidth(0.3);
+  doc.line(ml, y+22, ml+70, y+22);
+  doc.line(ml+85, y+22, ml+85+70, y+22);
+  doc.setFontSize(8);doc.setTextColor(100);doc.setFont(undefined,'normal');
+  doc.text('Unterschrift Ableser', ml, y+27);
+  doc.text('Unterschrift Kunde', ml+85, y+27);
+
+  // Embed signatures if drawn
+  try{
+    if(!isCanvasBlank(sigAbleserCanvas)) doc.addImage(sigAbleserCanvas.toDataURL('image/png'), 'PNG', ml, y, 70, 20);
+    if(!isCanvasBlank(sigKundeCanvas)) doc.addImage(sigKundeCanvas.toDataURL('image/png'), 'PNG', ml+85, y, 70, 20);
+  }catch(e){}
+
+  // Footer
+  drawFooter(doc);
+
+  doc.save(`Ableseprotokoll_${data.kunde.nachname || 'Export'}_${data.datum.replace(/\./g,'-')}.pdf`);
+  showToast('PDF wurde erzeugt!');
+}
+
+function isCanvasBlank(canvas){
+  const ctx = canvas.getContext('2d');
+  const data = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+  for(let i=3;i<data.length;i+=4){if(data[i]!==0)return false;}
+  return true;
+}
+
+/* ============================================================
+   EMAIL
+   ============================================================ */
+function sendEmail(){
+  const data = collectData();
+  const subj = encodeURIComponent(`Ableseprotokoll – ${data.kunde.nachname || 'Kunde'} – ${data.datum}`);
+  const body = encodeURIComponent(`Sehr geehrte Damen und Herren,\n\nanbei das Ableseprotokoll ${data.protokollNr} vom ${data.datum}.\n\nKunde: ${data.kunde.vorname} ${data.kunde.nachname}\nKundennummer: ${data.kunde.kundennummer}\nAnzahl Zähler: ${data.zaehler.length}\n\nBitte das PDF aus dem Download-Ordner manuell anhängen.\n\nMit freundlichen Grüßen\nStadtwerke Nordstadt – Außendienst`);
+  window.location.href = `mailto:ablesung@sw-nordstadt.de?subject=${subj}&body=${body}`;
+}
+
+/* ============================================================
+   JSON EXPORT
+   ============================================================ */
+function exportJSON(){
+  if(!validate()){showToast('Bitte alle Pflichtfelder korrekt ausfüllen!',3000);return;}
+  const data = collectData();
+  // Remove foto data for JSON export (too large)
+  const exportData = JSON.parse(JSON.stringify(data));
+  exportData.zaehler.forEach(z=>{
+    if(z.foto) z.foto = '[Foto vorhanden – Base64 entfernt für Export]';
+  });
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Ablesung_${data.kunde.nachname||'Export'}_${data.datum.replace(/\./g,'-')}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('JSON exportiert!');
+}
+
+/* ============================================================
+   LOCAL STORAGE
+   ============================================================ */
+function saveToStorage(){
+  try{
+    const data = collectData();
+    localStorage.setItem('sw_ablesung_data', JSON.stringify(data));
+    localStorage.setItem('sw_ablesung_time', new Date().toLocaleString('de-DE'));
+    showToast('Daten lokal gespeichert!');
+  }catch(e){showToast('Speichern fehlgeschlagen: '+e.message, 3000);}
+}
+
+function loadFromStorage(){
+  try{
+    const raw = localStorage.getItem('sw_ablesung_data');
+    if(!raw){showToast('Keine gespeicherten Daten gefunden.',3000);return;}
+    const data = JSON.parse(raw);
+    const time = localStorage.getItem('sw_ablesung_time')||'';
+    if(!confirm(`Gespeicherte Daten vom ${time} laden?\nAktuelle Eingaben werden überschrieben.`)) return;
+
+    // Restore Kundendaten
+    document.getElementById('kundennummer').value = data.kunde.kundennummer||'';
+    const anredeSelect = document.getElementById('anrede');
+    for(let o of anredeSelect.options){if(o.value===data.kunde.anrede)o.selected=true;}
+    document.getElementById('vorname').value = data.kunde.vorname||'';
+    document.getElementById('nachname').value = data.kunde.nachname||'';
+    document.getElementById('strasse').value = data.kunde.strasse||'';
+    document.getElementById('plz').value = data.kunde.plz||'';
+    document.getElementById('ort').value = data.kunde.ort||'';
+    document.getElementById('telefon').value = data.kunde.telefon||'';
+    document.getElementById('email').value = data.kunde.email||'';
+
+    // Clear existing Zähler
+    document.getElementById('zaehlerContainer').innerHTML = '';
+    zaehlerIndex = 0;
+
+    // Restore Zähler
+    for(const z of data.zaehler){
+      addZaehler();
+      const zid = 'z'+zaehlerIndex;
+      const sparteEl = document.getElementById('sparte_'+zid);
+      for(let o of sparteEl.options){if(o.value===z.sparte)o.selected=true;}
+      document.getElementById('znr_'+zid).value = z.zaehlernummer||'';
+      document.getElementById('zstand_'+zid).value = z.zaehlerstand||'';
+      const ztypEl = document.getElementById('ztyp_'+zid);
+      for(let o of ztypEl.options){if(o.value===z.zaehlertyp)o.selected=true;}
+      document.getElementById('datum_'+zid).value = z.ablesedatum||'';
+      const grundEl = document.getElementById('grund_'+zid);
+      for(let o of grundEl.options){if(o.value===z.ablesegrund)o.selected=true;}
+      document.getElementById('zpkt_'+zid).value = z.zaehlpunkt||'';
+      document.getElementById('notiz_'+zid).value = z.notizen||'';
+      if(z.foto && !z.foto.startsWith('[')){
+        document.getElementById('foto_'+zid).value = z.foto;
+        document.getElementById('thumb_'+zid).innerHTML = `<img src="${z.foto}" class="zaehler-thumb" alt="Zählerfoto">`;
+      }
+    }
+    showToast('Daten geladen!');
+  }catch(e){showToast('Laden fehlgeschlagen: '+e.message, 3000);}
+}
+
+/* ============================================================
+   SIGNATURE CANVAS
+   ============================================================ */
+function initSignatureCanvas(canvasId){
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  let drawing = false;
+  let rect;
+
+  function resize(){
+    const parent = canvas.parentElement;
+    const w = parent.clientWidth;
+    // save content
+    const imgData = canvas.toDataURL();
+    canvas.width = w;
+    canvas.height = 120;
+    // restore
+    const img = new Image();
+    img.onload = ()=>ctx.drawImage(img,0,0);
+    img.src = imgData;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function getPos(e){
+    rect = canvas.getBoundingClientRect();
+    const touch = e.touches ? e.touches[0] : e;
+    return {x: touch.clientX - rect.left, y: touch.clientY - rect.top};
+  }
+
+  function start(e){
+    e.preventDefault();
+    drawing = true;
+    const pos = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+    ctx.strokeStyle = '#1B3A5C';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+  }
+  function move(e){
+    if(!drawing) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+  }
+  function end(e){
+    drawing = false;
+  }
+
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  canvas.addEventListener('mouseup', end);
+  canvas.addEventListener('mouseleave', end);
+  canvas.addEventListener('touchstart', start, {passive:false});
+  canvas.addEventListener('touchmove', move, {passive:false});
+  canvas.addEventListener('touchend', end);
+}
+
+function clearSig(canvasId){
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', ()=>{
+  addZaehler(); // Start with one Zähler
+  initSignatureCanvas('sigAbleser');
+  initSignatureCanvas('sigKunde');
+
+  // Auto-save on visibility change
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'hidden'){
+      try{
+        const data = collectData();
+        localStorage.setItem('sw_ablesung_autosave', JSON.stringify(data));
+      }catch(e){}
+    }
+  });
+
+  // Check for autosave
+  const autosave = localStorage.getItem('sw_ablesung_autosave');
+  if(autosave){
+    try{
+      const data = JSON.parse(autosave);
+      if(data.zaehler && data.zaehler.length > 0 && data.kunde.kundennummer){
+        // Silent: don't auto-load, but show hint
+        showToast('Tipp: "Gespeicherte Daten laden" um vorherige Eingaben wiederherzustellen', 4000);
+      }
+    }catch(e){}
+  }
+});
+</script>
+</body>
+</html>
